@@ -1,0 +1,240 @@
+https://github.com/gp229/it610/tree/final
+
+Ports needed:
+80 for Apache
+25 for Email
+5666 from all 3 servers
+All ICMP from Nagios Server
+
+Nagios Server Setup:
+
+ -Setup Nagios User
+    sudo useradd nagios
+    usdo groupadd nagcmd
+    sudo groupadd nagcmd
+    sudo usermod -a -G nagcmd nagios
+    sudo apt-get update
+    sudo apt-get install build-essential libgd2-xpm-dev openssl libssl-dev unzip
+	sudo apt-get install apache2
+    sudo apt-get install libapache2-mod-php7.0
+ -Download and install packages	
+    cd ~
+	curl -L -O https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.3.4.tar.gz
+	curl -L -O http://nagios-plugins.org/download/nagios-plugins-2.2.1.tar.gz
+	curl -L -O https://github.com/NagiosEnterprises/nrpe/releases/download/nrpe-3.2.1/nrpe-3.2.1.tar.gz
+    tar xzf nagios-4.3.4.tar.gz
+	tar zxf nrpe-3.2.1.tar.gz
+	tar zxf nagios-plugins-2.2.1.tar.gz
+    cd nagios-4.3.4/
+    ./configure --with-nagios-group=nagios --with-command-group=nagcmd --with-mail=/usr/sbin/sendmail
+    make all
+    sudo make install
+    sudo make install-commandmode
+    sudo make install-init
+    sudo make install-config
+	cd ../nrpe-3.2.1/
+	./configure
+    make check_nrpe
+    sudo make install-plugin
+	cd ../nagios-plugins-2.2.1/
+	./configure --with-nagios-user=nagios --with-nagios-group=nagios --with-openssl
+	make
+	sudo make install	
+
+ -Nagios and Apache configuration	
+	sudo /usr/bin/install -c -m 644 sample-config/httpd.conf /etc/apache2/sites-available/nagios.conf
+    sudo usermod -G nagcmd www-data
+    sudo vim /usr/local/nagios/etc/nagios.cfg
+	{
+		(uncomment this line)
+		cfg_dir=/usr/local/nagios/etc/servers
+	}
+    sudo mkdir /usr/local/nagios/etc/servers
+    sudo vim /usr/local/nagios/etc/objects/commands.cfg
+	{
+		(add this to the bottom)
+		define command
+		{
+			command_name check_nrpe
+			command_line $USER1$/check_nrpe -H $HOSTADDRESS$ -c $ARG1$
+		}
+	}
+    sudo a2enmod rewrite
+    sudo a2enmod cgi
+    sudo htpasswd -c /usr/local/nagios/etc/htpasswd.users nagiosadmin
+    sudo ln -s /etc/apache2/sites-available/nagios.conf /etc/apache2/sites-enabled/
+    sudo vim /etc/apache2/sites-available/nagios.conf
+	{
+		(comment out any occurences of this)
+		Order allow,deny
+ 		Allow from all
+		
+		(uncomment any occurence of this)
+		Order deny,allow
+		Deny from all
+		Allow from 127.0.0.1		
+	}
+    sudo systemctl restart apache2.service
+	(test NRPE communication with this command once NRPE is setup)
+    /usr/local/nagios/libexec/check_nrpe -H remoteNRPEServerIP
+    cd /usr/local/nagios/etc/servers/
+	sudo vim apache.cfg
+	{
+		define host 
+		{
+			use                     linux-server
+			host_name               (add a name)
+			alias                   (add a alias)
+			address                 (add the servers IP address)
+			max_check_attempts      5
+			check_period            24x7
+			notification_interval   30
+			notification_period     24x7
+		}
+
+		define service 
+		{
+			use                     generic-service
+			host_name               (hostname)
+			service_description     (hostname) status
+			check_command           check_nrpe!check_apache!
+		}
+		define service
+		{
+			use                     local-service         ; Name of service template to use
+			host_name               (hostname)
+			service_description     PING
+			check_command           check_ping!100.0,20%!500.0,60%
+		}
+	}
+	sudo vim mysql.cfg
+	{
+		define host 
+		{
+			use                     linux-server
+			host_name               (add a name)
+			alias                   (add a alias)
+			address                 (add the servers IP address)
+			max_check_attempts      5
+			check_period            24x7
+			notification_interval   30
+			notification_period     24x7
+		}
+
+		define service 
+		{
+			use                     generic-service
+			host_name               (hostname)
+			service_description     (hostname) connection time
+			check_command           check_nrpe!check_mysql_health_connection!
+		}
+		define service 
+		{
+			use                     generic-service
+			host_name               (hostname)
+			service_description     (hostname) query rate
+			check_command           check_nrpe!check_mysql_health_hitrate!
+		}
+		define service
+		{
+			use                     local-service         ; Name of service template to use
+			host_name               (hostname)
+			service_description     PING
+			check_command           check_ping!100.0,20%!500.0,60%
+        }
+	}
+	
+ -Email Setup
+	sudo apt-get install postfix
+	sudo apt-get install heirloom-mailx
+	sudo vim /usr/local/nagios/etc/objects/commands.cfg
+	{
+		replace occurence for 
+		# 'notify-host-by-email' command definition
+		# 'notify-service-by-email' command definition
+		to
+		/usr/sbin/sendmail to /usr/sbin/mailx
+	}
+	sudo vim /usr/local/nagios/etc/objects/contacts.cfg
+	{
+		(edit email contact to your email)
+	}
+	(use this command to check for correct configuration of nagios server): 
+	sudo /usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg
+	sudo systemctl restart nagios.service
+	
+ 
+NRPE Agents:
+	sudo useradd nagios
+	sudo apt-get update
+	sudo apt-get install build-essential libgd2-xpm-dev openssl libssl-dev unzip
+	
+	cd ~
+	curl -L -O http://nagios-plugins.org/download/nagios-plugins-2.2.1.tar.gz
+	curl -L -O https://github.com/NagiosEnterprises/nrpe/releases/download/nrpe-3.2.1/nrpe-3.2.1.tar.gz
+	tar zxf nrpe-3.2.1.tar.gz
+	tar zxf nagios-plugins-2.2.1.tar.gz
+	
+	cd nagios-plugins-2.2.1
+	make
+	sudo make install
+	cd ../nrpe-3.2.1
+	./configure --enable-command-args --with-nagios-user=nagios --with-nagios-group=nagios --with-ssl=/usr/bin/openssl --with-ssl-lib=/usr/lib/x86_64-linux-gnu
+	make all
+	sudo make install
+	sudo make install-config
+	sudo make install-init
+	sudo vim /usr/local/nagios/etc/nrpe.cfg
+	{
+		(edit this line)
+		allowed_hosts=127.0.0.1,::1,your_nagios_server_private_ip
+	}
+	sudo systemctl start nrpe.service
+	
+NRPE Apache:
+
+	wget "https://exchange.nagios.org/components/com_mtree/attachment.php?link_id=619&cf_id=24" -O check_apache2.sh
+	sudo mv check_apache2 /usr/local/nagios/libexec/
+	sudo chmod 755 /usr/local/nagios/libexec/check_apache2.sh
+	sudo apt-get install bc
+	sudo vim /usr/local/nagios/etc/nrpe.cfg
+	{
+		(add this to the commands near the bottom)
+		command[check_apache]=/usr/local/nagios/libexec/check_apache2.sh -H localhost -P 80 -t 3 -b /usr/sbin -p /var/run
+	}
+	sudo systemctl start nrpe.service
+
+NRPE MySQL:
+	
+	wget http://labs.consol.de/wp-content/uploads/2010/10/check_mysql_health-2.2.2.tar.gz
+	tar zxf check_mysql_health-2.2.2.tar.gz
+	cd check_mysql_health-2.2.2
+	./configure --prefix=/usr/local/nagios --with-nagios-user=nagios --with-nagios-group=nagios --with-perl=/usr/bin/perl
+	make
+	make install
+	mysql -u root -p
+	{
+		grant usage, replication client on *.* to 'nagios'@'localhost' identified by 'nagios';
+	}
+	sudo vim /usr/local/nagios/etc/nrpe.cfg
+	{
+		(add this to the commands near the bottom)
+		command[check_mysql_health_connection]=/usr/local/nagios/libexec/check_mysql_health -H 127.0.0.1 --username=nagios --password=nagios --port 3306 --mode connection-time
+		command[check_mysql_health_hitrate]=/usr/local/nagios/libexec/check_mysql_health -H 127.0.0.1 --username=nagios --password=nagios --port 3306 --warning 10 --critical 20 --mode slow-queries
+	}
+MySQL Weekly Backup:
+
+		sudo apt-get install anacron
+		mkdir ~/backup
+		vim ~/backup/backup
+		{
+			#!/bin/bash
+			mysqldump -u nagios --all-databases > /home/ubuntu/backup/mysql.sql
+		}
+		sudo vim /etc/anacrontab
+		{
+			(add this to the bottom of the file)
+			7       1       mysql.weekly    /bin/bash /home/ubuntu/backup/backupsql
+		}
+
+		
